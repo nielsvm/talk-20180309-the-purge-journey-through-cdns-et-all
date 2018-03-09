@@ -681,24 +681,58 @@
           <a href="http://drupal8.loc/admin/config/development/performance/purge" target="_blank">/admin/config/development/performance/purge</a><!-- .element: class="fragment" -->
 
         </script></section>
+
+        <section data-markdown data-separator="^\n---\n$" data-separator-vertical="^\n---$"><script type="text/template">
+          # <i>Common pitfalls</i>
+
+          ---
+          # Headless Drupal
+
+          * Yes, Angular.js is cool, but how about cache tags? <!-- .element: class="fragment" -->
+
+          * Understand what parts of the Drupal stack you replace. <!-- .element: class="fragment" -->
+
+          * If performance is a need, try Purge and BigPipe! <!-- .element: class="fragment" -->
+
+          ---
+          # Mixing technology
+
+          * Frameworks like NodeJS or Django, have no cache tags. <!-- .element: class="fragment" -->
+
+          * Porting Purge, will be a thankless task. <!-- .element: class="fragment" -->
+
+          * Site-wide or partial TTLs is your only option. <!-- .element: class="fragment" -->
+
+          ---
+          # URL Queuer
+
+          * Queues URLs like in D7, but inferior to cache tags. <!-- .element: class="fragment" -->
+
+          * Needed for Akamai, most other CDNs support tags. <!-- .element: class="fragment" -->
+
+          * If you use it, watch your queue once a day! <!-- .element: class="fragment" -->
+
+          ---
+          # Stacking caches
+
+          * If Varnish is really not enough, you can add a CDN on top. <!-- .element: class="fragment" -->
+
+          * At Acquia, we often see Varnish outperform CDNs. <!-- .element: class="fragment" -->
+
+          * Primarily, CDNs are for multi-region delivery. <!-- .element: class="fragment" -->
+
+          * Purge allows stacking reverse proxies, but keep it simple! <!-- .element: class="fragment" -->
+
+          ---
+          # Questions?
+          * https://github.com/nielsvm/talk-20180309-the-purge-journey-through-cdns-et-all
+          * [niels.vanmourik@acquia.com](niels.vanmourik@acquia.com)
+          * [drupal.org/project/purge](https://www.drupal.org/project/purge)
+        </script></section>
+
         <section data-markdown data-separator="^\n---\n$" data-separator-vertical="^\n---$"><script type="text/template">
           # ok, done!
           ### <i>A.K.A. question time...</i>
-
-          ---
-          # Question #1:
-
-          ### How about NodeJS?
-
-          ---
-          # Question #2:
-
-          ### How can you clear only the expired items using the purge module?
-
-          ---
-          # Question #...
-
-          ### <i>Its your turn...</i>
 
           ---
           # Questions?
