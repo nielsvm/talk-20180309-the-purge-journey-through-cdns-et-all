@@ -1,1 +1,10 @@
 drush | grep '^ p\-'
+
+drush p-purger-ls
+drush p-purger-lsa
+drush p-purger-add cloudflare
+
+
+drush p-debug-en
+drush -v pinv tag foo
+drush p-debug-dis

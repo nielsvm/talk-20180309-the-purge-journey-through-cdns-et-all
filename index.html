@@ -27,6 +27,7 @@
       <div class="slides">
         <section data-markdown data-separator="^\n---\n$" data-separator-vertical="^\n---$"><script type="text/template">
           #Caching & Purging in Drupal 8
+          #### The Purge journey through CDN's, varnish et al
         </script></section>
         <section data-markdown data-separator="^\n---\n$" data-separator-vertical="^\n---$"><script type="text/template">
           # What is caching actually?
@@ -372,13 +373,6 @@
           ## more than
           ## 100 lines!
 
-          ---
-          ## D8 + purge + varnish + CF? =
-
-          ![](img/happy_cdn.png)<!-- .element: class="fragment" -->
-
-          ## A very happy stack!<!-- .element: class="fragment" -->
-
         </script></section>
         <section data-markdown data-separator="^\n---\n$" data-separator-vertical="^\n---$"><script type="text/template">
           # Implementations
@@ -419,8 +413,8 @@
           <a href="img/purge_diagram.png" target="_blank">open diagram...</a><!-- .element: class="fragment" -->
 
           ---
-          ## Let's take Cloudflare
-          ## as example project...
+          ## Let's look at the
+          ##  Cloudflare project...
 
           ---
           ## The CloudFlare module
@@ -439,38 +433,116 @@
 
           <a href="https://cgit.drupalcode.org/cloudflare/tree/modules/cloudflarepurger/src/Plugin/Purge/Purger/CloudFlarePurger.php" target="_blank">src/Plugin/Purge/Purger/CloudFlarePurger.php</a>
 
-```
-/**
- * CloudFlare purger.
- *
- * @PurgePurger(
- *   id = "cloudflare",
- *   label = @Translation("CloudFlare"),
- *   description = @Translation("Purger for CloudFlare."),
- *   types = {"tag", "url", "everything"},
- *   multi_instance = FALSE,
- * )
- */
-class CloudFlarePurger extends PurgerBase implements PurgerInterface {
-...
-  public function invalidate(array $invalidations) {
-    $chunks = array_chunk($invalidations, CloudFlareAPI::MAX_TAG_PURGES_PER_REQUEST);
+          ```
+          /**
+          * CloudFlare purger.
+          *
+          * @PurgePurger(
+          *   id = "cloudflare",
+          *   label = @Translation("CloudFlare"),
+          *   description = @Translation("Purger for CloudFlare."),
+          *   types = {"tag", "url", "everything"},
+          *   multi_instance = FALSE,
+          * )
+          */
+          class CloudFlarePurger extends PurgerBase implements PurgerInterface {
 
-    $has_invalidations = count($invalidations) > 0;
-    if (!$has_invalidations) {
-      return;
-    }
+          public function invalidate(array $invalidations) {
+              $chunks = array_chunk($invalidations, CloudFlareAPI::MAX_TAG_PURGES_PER_REQUEST);
 
-    foreach ($chunks as $chunk) {
-      $this->purgeChunk($chunk);
-    }
-  }
-...
-```
+              $has_invalidations = count($invalidations) > 0;
+              if (!$has_invalidations) {
+              return;
+              }
 
+              foreach ($chunks as $chunk) {
+              $this->purgeChunk($chunk);
+              }
+          }
+
+          /**
+          * Purges a chunk of tags.
+          *
+          * Integration point between purge and CloudFlareAPI.  Purge requires state
+          * tracking on each item purged.  This function provides that accounting and
+          * calls CloudflareApi.
+          *
+          * CloudFlare only allows us to purge 30 tags at once.
+          *
+          * @param array $invalidations
+          *   Chunk of purge module invalidation objects to purge via CloudFlare.
+          */
+          private function purgeChunk(array &$invalidations) {
+              // This is a unique case where the ApiSdk is being accessed directly and not
+              // via a service.  Purging should only ever happen through the purge module
+              // which is why this is NOT in a service.
+              $api_key = $this->config->get('apikey');
+              $email = $this->config->get('email');
+              $this->zone = $this->config->get('zone_id');
+              $this->zoneApi = new ZoneApi($api_key, $email);
+
+              $api_targets_to_purge = [];
+
+              // This method is unfortunately a bit verbose due to the fact that we
+              // need to update the purge states as we proceed.
+              foreach ($invalidations as $invalidation) {
+              $invalidation->setState(InvalidationInterface::PROCESSING);
+              $api_targets_to_purge[] = $invalidation->getExpression();
+              }
+
+              if (!$this->areCloudflareComposerDepenciesMet) {
+              foreach ($invalidations as $invalidation) {
+                  $invalidation->setState(InvalidationInterface::FAILED);
+              }
+              }
+
+              try {
+              // Interface with the CloudFlarePhpSdk.
+              $invalidation_type = $invalidations[0]->getPluginId();
+              if ($invalidation_type == 'tag') {
+                  // @todo Remove this wrapper once CloudFlare supports 16k headers.
+                  // Also invalidate the cache tags as hashes, to automatically also work
+                  // for responses that exceed CloudFlare's Cache-Tag header limit.
+                  $hashes = CloudFlareCacheTagHeaderGenerator::cacheTagsToHashes($api_targets_to_purge);
+                  $this->zoneApi->purgeTags($this->zone, $hashes);
+                  $this->state->incrementTagPurgeDailyCount();
+
+              }
+
+              elseif ($invalidation_type == 'url') {
+                  $this->zoneApi->purgeIndividualFiles($this->zone, $api_targets_to_purge);
+              }
+
+              elseif ($invalidation_type == 'everything') {
+                  $this->zoneApi->purgeAllFiles($this->zone);
+              }
+
+              foreach ($invalidations as $invalidation) {
+                  $invalidation->setState(InvalidationInterface::SUCCEEDED);
+              }
+              }
+
+              catch (\Exception $e) {
+              foreach ($invalidations as $invalidation) {
+                  $invalidation->setState(InvalidationInterface::FAILED);
+              }
+
+              // We only want to log a single watchdog error per request. This prevents
+              // the log from being flooded.
+              $this->logger->error($e->getMessage());
+              }
+
+              finally {
+              $this->state->incrementApiRateCount();
+              }
+          }
+
+          }
+          ...
+          ```
 
           ---
-          ### Its diagnostic plugin protects the user...
+          ### Its diagnostic plugin
           ![](img/cloudflare-diagnostics.png)
 
           ```
@@ -480,27 +552,160 @@ class CloudFlarePurger extends PurgerBase implements PurgerInterface {
           ```
 
           ---
-          ## The Purge UI
+          ## D8 + purge + varnish + CF? =
 
-          <a href="http://drupal8.loc/admin/config/development/performance/purge" target="_blank">/admin/config/development/performance/purge</a><!-- .element: class="fragment" -->
+          ![](img/happy_cdn.png)<!-- .element: class="fragment" -->
+
+          ## A very happy stack!<!-- .element: class="fragment" -->
+
+          ---
+          ## Now let's check
+          ## ``varnish_purge``
+
+          ---
+          ## The ``varnish_purge`` module
+          * Originally started as a fork of purge_purger_http. <!-- .element: class="fragment" -->
+
+          * Requires a self-hosted instance of varnishd. <!-- .element: class="fragment" -->
+
+          * 60 lines for the Purger implementation. <!-- .element: class="fragment" -->
+
+          * 100 lines for its diagnostics configuration plugin.<!-- .element: class="fragment" -->
+
+          ---
+          ## Its purger plugin
+
+          <a href="https://cgit.drupalcode.org/varnish_purge/tree/src/Plugin/Purge/Purger/VarnishPurger.php" target="_blank">src/Plugin/Purge/Purger/VarnishPurger.php</a>
+
+          ```
+          /**
+           * Varnish Purger
+           *
+           * @PurgePurger(
+           *   id = "varnish",
+           *   label = @Translation("Varnish Purger"),
+           *   configform = "\Drupal\varnish_purger\Form\VarnishPurgerForm",
+           *   cooldown_time = 0.0,
+           *   description = @Translation("Configurable purger that makes HTTP requests for each given invalidation instruction."),
+           *   multi_instance = TRUE,
+           *   types = {},
+           * )
+           */
+          class VarnishPurger extends VarnishPurgerBase implements PurgerInterface {
+
+            /**
+             * {@inheritdoc}
+             */
+            public function invalidate(array $invalidations) {
+
+              // Iterate every single object and fire a request per object.
+              foreach ($invalidations as $invalidation) {
+                $token_data = ['invalidation' => $invalidation];
+                $uri = $this->getUri($token_data);
+                $opt = $this->getOptions($token_data);
+
+                try {
+                  $this->client->request($this->settings->request_method, $uri, $opt);
+                  $invalidation->setState(InvalidationInterface::SUCCEEDED);
+                }
+                catch (\Exception $e) {
+                  $invalidation->setState(InvalidationInterface::FAILED);
+
+                  // Log as much useful information as we can.
+                  $headers = $opt['headers'];
+                  unset($opt['headers']);
+                  $debug = json_encode(str_replace("\n", ' ', [
+                    'msg' => $e->getMessage(),
+                    'uri' => $uri, 'method' => $this->settings->request_method,
+                    'guzzle_opt' => $opt, 'headers' => $headers]));
+                  $this->logger()->emergency("item failed due @e, details (JSON): @debug",
+                    ['@e' => get_class($e), '@debug' => $debug]);
+                }
+              }
+            }
+
+          }
+          ```
+
+          ---
+          ### Its diagnostic plugin
+
+          <a href="https://cgit.drupalcode.org/varnish_purge/tree/src/Plugin/Purge/DiagnosticCheck/ConfigurationCheck.php" target="_blank">src/Plugin/Purge/DiagnosticCheck/ConfigurationCheck.php</a>
 
 
+          ---
+          ## VCL-snippet for Varnish
+
+          <a href="https://gitlab.wklive.net/snippets/32" target="_blank">https://gitlab.wklive.net/snippets/32</a>
+
+          ```
+          # Only allow BAN requests from IP addresses in the 'purge' ACL.
+          if (req.method == "BAN") {
+              # Same ACL check as above:
+              if (!client.ip ~ purge) {
+                  return (synth(403, "Not allowed."));
+              }
+
+              # Logic for the ban, using the Cache-Tags header. For more info
+              # see https://github.com/geerlingguy/drupal-vm/issues/397.
+              if (req.http.Cache-Tags) {
+                  ban("obj.http.Cache-Tags ~ " + req.http.Cache-Tags);
+              }
+              else {
+                  return (synth(403, "Cache-Tags header missing."));
+              }
+
+              # Throw a synthetic page so the request won't go to the backend.
+              return (synth(200, "Ban added."));
+          }
+        ```
+
+          ---
+          ## How does it work?
+          * Purge calls VarnishPurger::invalidate() <!-- .element: class="fragment" -->
+
+          * Each invalidation object represents a tag <!-- .element: class="fragment" -->
+
+          * A HTTP BAN is requested containing all tags  <!-- .element: class="fragment" -->
+
+          * The VCL logic feeds the tags to the Varnish BAN-lurker.<!-- .element: class="fragment" -->
+
+          * Off-process, the BAN-lurker starts marking matched items.<!-- .element: class="fragment" -->
+
+          * VarnishPurger marks the objects as successful.<!-- .element: class="fragment" -->
 
         </script></section>
         <section data-markdown data-separator="^\n---\n$" data-separator-vertical="^\n---$"><script type="text/template">
-          # That was it!
+          # <i>demo time...</i>
+
+          <a href="http://drupal8.loc/admin/config/development/performance/purge" target="_blank">/admin/config/development/performance/purge</a><!-- .element: class="fragment" -->
+
+        </script></section>
+        <section data-markdown data-separator="^\n---\n$" data-separator-vertical="^\n---$"><script type="text/template">
+          # ok, done!
+          ### <i>A.K.A. question time...</i>
+
+          ---
+          # Question #1:
+
+          ### How about NodeJS?
+
+          ---
+          # Question #2:
+
+          ### How can you clear only the expired items using the purge module?
+
+          ---
+          # Question #...
+
+          ### <i>Its your turn...</i>
 
           ---
           # Questions?
-
-          ---
-          # Questions?
-          * Slides at [goo.gl/WlLy80](https://github.com/nielsvm/talk-20160722-cache-clear-all-the-things)
+          * https://github.com/nielsvm/talk-20180309-the-purge-journey-through-cdns-et-all
           * [niels.vanmourik@acquia.com](niels.vanmourik@acquia.com)
           * [drupal.org/project/purge](https://www.drupal.org/project/purge)
-          * [drupal.org/project/cloudflare](https://www.drupal.org/project/cloudflare)
         </script></section>
-
         <div class='footer'>
           <ul id="footerlist">
             <li class="transparency"><span id="time"></span></li>
