@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Caching & Purging in Drupal 8 - The Purge journey through CDN's, varnish et al</title>
+    <meta name="author" content="Niels van Mourik">
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, minimal-ui">
+    <link rel="stylesheet" href="src/reveal/css/reveal.css">
+    <link rel="stylesheet" href="src/reveal/css/theme/moon.css" id="theme">
+    <link rel="stylesheet" href="src/reveal/lib/css/zenburn.css">
+    <link rel="stylesheet" href="src/style.css">
+    <script><!-- Printing and PDF exports -->
+      var link = document.createElement( 'link' );
+      link.rel = 'stylesheet';
+      link.type = 'text/css';
+      link.href = window.location.search.match( /print-pdf/gi ) ? 'src/reveal/css/print/pdf.css' : 'src/reveal/css/print/paper.css';
+      document.getElementsByTagName( 'head' )[0].appendChild( link );
+    </script>
+    <!--[if lt IE 9]>
+    <script src="src/reveal/lib/js/html5shiv.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+    <div class="reveal">
+      <div class="slides">
+        <section data-markdown data-separator="^\n---\n$" data-separator-vertical="^\n---$"><script type="text/template">
+          #Caching & Purging in Drupal 8
+        </script></section>
+        <section data-markdown data-separator="^\n---\n$" data-separator-vertical="^\n---$"><script type="text/template">
+          # What is caching actually?
+          #### AKA: The problem we're trying to solve
+
+          ---
+          # Your webserver sucks!
+          **Lots of requests**<!-- .element: class="fragment" -->
+
+          **Building pages takes time**<!-- .element: class="fragment" -->
+
+          ---
+          # Caching Everywhere! Which ones are we talking about?
+
+          ---
+          # Layers
+          ![](img/drupal-caching-architecture.png)
+
+          ---
+          #  What is a Reverse Proxy?
+          **URL-based cache full of HTML blobs**<!-- .element: class="fragment" -->
+
+          **Caches Outbound HTTP request**<!-- .element: class="fragment" -->
+
+          **Follows the HTTP protocol / cache-control headers**<!-- .element: class="fragment" -->
+
+          ---
+          #  Now What is a CDN?
+
+          **Fancy Reverse Proxy** <!-- .element: class="fragment" -->
+
+          **Globally Distributed network of servers** <!-- .element: class="fragment" -->
+
+          **Serve users from the place closest to them** <!-- .element: class="fragment" -->
+
+          **Can protect against DDOS** <!-- .element: class="fragment" -->
+
+          ---
+          ##  How does this actually work?
+          ![](img/cdn-flow.png)
+
+          ---
+          # What does success look like?
+
+          ---
+          # Failure: Cache Miss
+          ```
+          curl -SLIXGET https://fakedomain.com/test
+          HTTP/1.1 200 OK
+          Content-Type: text/html; charset=UTF-8
+          Cache-Control: public, max-age=86400
+          Expires: Sat, 23 Jul 2016 12:19:47 GMT
+          Purge-Cache-Tags: block_view config:block.block....
+          Vary: Accept-Encoding
+          Via: 1.1 varnish
+          X-Cache: MISS
+          X-Drupal-Cache: MISS
+          X-Frame-Options: SAMEORIGIN
+          X-Generator: Drupal 8 (https://www.drupal.org)
+          X-UA-Compatible: IE=edge
+          X-Varnish: 1341461221
+          CF-Cache-Status: MISS
+          Server: cloudflare-nginx
+          CF-RAY: 2c66d7c869570f2d-IAD
+          ```
+
+          ---
+          # Success: Cache Hit
+          ```
+          curl -SLIXGET https://fakedomain.com/test
+          HTTP/1.1 200 OK
+          Content-Type: text/html; charset=UTF-8
+          Cache-Control: public, max-age=86400
+          Expires: Sat, 23 Jul 2016 12:19:47 GMT
+          Purge-Cache-Tags: block_view config:block.block....
+          Vary: Accept-Encoding
+          Via: 1.1 varnish
+          X-Cache: MISS
+          X-Drupal-Cache: MISS
+          X-Frame-Options: SAMEORIGIN
+          X-Generator: Drupal 8 (https://www.drupal.org)
+          X-UA-Compatible: IE=edge
+          X-Varnish: 1341461221
+          CF-Cache-Status: HIT
+          Server: cloudflare-nginx
+          CF-RAY: 2c66d7c869570f2d-IAD
+          ```
+
+          ---
+          ## Bringing it all together
+
+          **Want items to be cached in CDN or Varnish**<!-- .element: class="fragment" -->
+
+          **Want to see cache hits**<!-- .element: class="fragment" -->
+
+          **Need to remove items from cache**<!-- .element: class="fragment" -->
+
+
+
+        </script></section>
+
+        <section data-markdown data-separator="^\n---\n$" data-separator-vertical="^\n---$"><script type="text/template">
+          # Caching in D7
+          ## _bandaid at work_
+
+          ---
+          ## Internal page cache
+
+          **URL-based registry that keeps full-HTML copies of pages**<!-- .element: class="fragment" -->
+
+          **Considered a life-saver for anonymous traffic**<!-- .element: class="fragment" -->
+
+          **Except that... in real-life, it's far from effective :-(**<!-- .element: class="fragment" -->
+
+          ---
+          # _Editing just one node..._<!-- .element: class="fragment" -->
+          # _<ins>Deletes ALL other cached pages!</ins>_<!-- .element: class="fragment" -->
+
+          ---
+          ## Now what if a CDN or
+          ## something like Varnish would cache
+          ## and serve Drupal's content?
+
+          ---
+          # Yup...<!-- .element: class="fragment" -->
+          # sounds cool<!-- .element: class="fragment" -->
+
+          ---
+          ## We just need this in settings.php:<!-- .element: class="fragment" -->
+
+          ```
+          $conf['page_cache_maximum_age'] = 31536000;
+          ```<!-- .element: class="fragment" -->
+
+          ** The external layer will cache everything for a whole year!  **<!-- .element: class="fragment" -->
+
+          # Problem solved?<!-- .element: class="fragment" -->
+
+          ---
+          ## Absolutely fabulous performance
+
+          **Until you edit a page...**<!-- .element: class="fragment" -->
+
+          **...and have it stuck in cache for the rest of the year!**<!-- .element: class="fragment" -->
+
+          # Blimey, Sherlock!<!-- .element: class="fragment" -->
+
+          ---
+          ## The _``expire``_ module
+          ###### _Formally known as "Cache Expiration"_
+
+          **Fires off a hook - with a list of URLs - when content changes**<!-- .element: class="fragment" -->
+
+          **Then modules like ``varnish`` or ``acquia_purge`` invalidate...**<!-- .element: class="fragment" -->
+
+          **Detects basics, like ``node_save()`` and taxonomy terms**<!-- .element: class="fragment" -->
+
+          ### <ins>This allows invalidating only what changed,<br /> keeping old content cached virtually endlessly!</ins><!-- .element: class="fragment" -->
+
+          ---
+          ![](img/acquia-purge-queuing-elb-support.png)
+
+          ---
+          ## The downsides...
+
+          **Guesses up to 60% of changes, rules to "fill in the gaps"**<!-- .element: class="fragment" -->
+
+          **You've got 100 page view. Edited a node, view stays cached!**<!-- .element: class="fragment" -->
+
+          **Too many incompatible modules that don't play along well**<!-- .element: class="fragment" -->
+
+          **_fire and forget_: overwhelming as URLs are uniquely cached**<!-- .element: class="fragment" -->
+
+          ---
+          # Isn't that madness?<!-- .element: class="fragment" -->
+        </script></section>
+        <section data-markdown data-separator="^\n---\n$" data-separator-vertical="^\n---$"><script type="text/template">
+          # Caching in D8
+          ## _caching rearchitected_
+
+          ---
+          ## A proper generic cache API
+
+          **Same old ``get()``, ``set()`` logic at heart!**<!-- .element: class="fragment" -->
+
+          **Allows tagging of arbitrary cached items**<!-- .element: class="fragment" -->
+
+          **``Cache::invalidateTags(["tag"])``**<!-- .element: class="fragment" -->
+
+          **``CacheTagsListenersInterface``**<!-- .element: class="fragment" -->
+
+          ---
+          ## Render API... _entity cache done right!_
+          ![](img/render_pipeline.svg)
+
+          ---
+          ## All rendering, through _one&nbsp;_ system!
+          ![](img/render_pipeline_graph.png)
+
+          ---
+          **All themed items get cached, _"entitycache in core!"_**<!-- .element: class="fragment" -->
+
+          **Items are described with "_tags"_ like "``node:1``"**<!-- .element: class="fragment" -->
+
+          **Tags "bubble up" to all rendered parents, including pages!**<!-- .element: class="fragment" -->
+
+          ### Like sorting books by color in a shelve...<!-- .element: class="fragment" -->
+
+          ## <ins>Drupal mass-clears its caches by tag,<br />when items claiming that tag change!</ins><!-- .element: class="fragment" -->
+
+          ---
+          ## Tags for an entire page
+          ```
+          block_view config:block.block.bartik_account_menu
+          config:block.block.bartik_branding config:block.block.breadcrumbs
+          config:block.block.bartik_content config:block.block.bartik_footer
+          config:block.block.bartik_help config:block.block.bartik_local_actions
+          config:block.block.bartik_local_tasks config:block.block.main_menu
+          config:block.block.bartik_messages config:block.block.bartik_page_title
+          config:block.block.bartik_powered config:block_list
+          config:filter.format.rich_text config:system.menu.account
+          config:system.menu.footer config:system.menu.main
+          config:system.site config:user.role.anonymous node:1
+          node_type:page node_view page_manager_route_name:entity.node.canonical
+          rendered user:0 user:1
+          ```
+
+          ---
+          **_Switched to a different theme?_**<!-- .element: class="fragment" -->
+
+          **_Moving block 123 around?_**<!-- .element: class="fragment" -->
+
+          ** _Renamed term 15?_**<!-- .element: class="fragment" -->
+
+          ```
+          Cache::invalidateTags(["theme:mynewtheme"]);
+          Cache::invalidateTags(["block:123"]);
+          Cache::invalidateTags(["term:15"]);```<!-- .element: class="fragment" -->
+
+          ### <ins>Only clean the stain, not the entire table!</ins><!-- .element: class="fragment" -->
+
+          ---
+          ## Generating content became
+          ## very cheap and efficiency
+          ## increased tremendously!
+
+          ---
+          # Result?
+
+          # A more efficent Drupal<!-- .element: class="fragment" -->
+        </script></section>
+        <section data-markdown data-separator="^\n---\n$" data-separator-vertical="^\n---$"><script type="text/template">
+          # D8 + External caching
+          ## _The <ins>Purge</ins> module_
+          ##### drupal.org/project/[**purge**](https://drupal.org/project/purge)
+
+          ---
+          ## Leveraging D8
+
+          **``CacheTagsListenersInterface`` tells what changed**<!-- .element: class="fragment" -->
+
+          **Not hard to set response headers with tags**<!-- .element: class="fragment" -->
+
+          **Solution could be written < 100 lines!**<!-- .element: class="fragment" -->
+
+          ---
+          ## So why on earth
+          ## do I need the
+          ## purge module?
+
+          ---
+          # Stuff goes in easy<!-- .element: class="fragment" -->
+          # Getting it out is hard<!-- .element: class="fragment" -->
+          ### And purge does so in a safe and flexible manner!<!-- .element: class="fragment" -->
+
+          ---
+          ## What is Purge?
+
+          **Generic middleware for all external cache invalidation**<!-- .element: class="fragment" -->
+
+          **Plugin based architecture with clean/decoupled APIs**<!-- .element: class="fragment" -->
+
+          **Technology-agnostic (doesn't do anything by itself)**<!-- .element: class="fragment" -->
+
+          **It measures+throttles workload (=no crashing)**<!-- .element: class="fragment" -->
+
+          **It's for all types of external cache invalidation**<!-- .element: class="fragment" -->
+
+          **Drupal+Varnish+CDN? Piece of cake!**<!-- .element: class="fragment" -->
+
+          **Queue-based architecture**<!-- .element: class="fragment" -->
+
+          ---
+          ##### Unfortunately, its so abstracted, that it needs its own
+          # Dictionary
+
+          ---
+          ## <ins>Invalidation types</ins>
+          With D7+expire, **URL** was the only <ins>invalidation type</ins>. Purge allows support for **tags**,
+          **URL**s, full cache wipes and more advanced such as **domain** or **regex**.
+
+          ---
+          ## <ins>Invalidations</ins>
+          An <ins>invalidation</ins> is a single transaction object,
+          that tracks a cache removal from start-end. It can fail, succeed or
+          require multistep processing (e.g. with Akamai).
+
+          ---
+          ## <ins>Purgers</ins>
+          The hard work of removing an <ins>invalidation</ins> from a remote
+          server or CDN, is done by a <ins>purger</ins> plugin. These plugins
+          come from third-party modules such as ``cloudflare``.
+
+          ...or the bundled <ins>purge_purger_http</ins>.
+
+          ---
+          ## <ins>Queuers</ins> add to the <ins>Queue</ins>
+          By default, the tag <ins>queuer</ins> adds changed tags from core to
+          the <ins>queue</ins>. However, if your CDN doesn't support cache tags,
+          you could use other queuers such as the **URL** queuer.
+
+          -----
+
+          The <ins>Queue</ins> is normally backed by the **database** backend,
+          but can be replaced by different implementations, browsed and cleared.
+
+          ---
+          ## <ins>Processors</ins>
+          Your <ins>purgers</ins> execute the cache clearing, but when this
+          happens, is decided by <ins>processors</ins>. Usually **cron** and/or
+          **drush** are sufficient, but more strategies are possible...
+
+          Through AJAX anyone?
+
+          ---
+          ## Diagnostic checks
+          Last but not least, <ins>diagnostic checks</ins> exist to verify
+          whether its safe and possible to run, for instance by verifying your
+          CDN's API key or server settings.
+
+          ---
+          ## That's way
+          ## more than
+          ## 100 lines!
+
+          ---
+          ## D8 + purge + varnish + CF? =
+
+          ![](img/happy_cdn.png)<!-- .element: class="fragment" -->
+
+          ## A very happy stack!<!-- .element: class="fragment" -->
+
+        </script></section>
+        <section data-markdown data-separator="^\n---\n$" data-separator-vertical="^\n---$"><script type="text/template">
+          # Implementations
+
+          ---
+          ** [``purge_purger_http``](https://www.drupal.org/project/purge_purger_http) for
+            generic poormans implementations.**<!-- .element: class="fragment" -->
+
+          ** [``purge_queuer_url``](https://www.drupal.org/project/purge_queuer_url) for non-tag based purging**<!-- .element: class="fragment" -->
+
+          ** [``cloudfront_purger``](https://github.com/previousnext/cloudfront_purger) by kim.pepper**<!-- .element: class="fragment" -->
+
+          ** [``cloudflare``](https://www.drupal.org/project/cloudflare) by Acquia (Adam W.)**<!-- .element: class="fragment" -->
+
+          ** [``acquia_purge``](https://www.drupal.org/project/acquia_purge) by Acquia (Niels)**<!-- .element: class="fragment" -->
+
+          ** [``akamai``](https://www.drupal.org/project/akamai) by Febbraro and Cameron Todd**<!-- .element: class="fragment" -->
+
+          ** [``fastlypurger``](https://www.drupal.org/project/fastly) by Fastly Inc.**<!-- .element: class="fragment" -->
+
+          ** [``keycdn``](https://www.drupal.org/project/keycdn) by Moshe Weitzman**<!-- .element: class="fragment" -->
+
+          ** [``varnish_purge``](https://www.drupal.org/project/varnish_purge) by MiSc**<!-- .element: class="fragment" -->
+
+          ---
+          # Acquia
+
+          **Runs thousands of ``varnishd`` instances**<!-- .element: class="fragment" -->
+
+          **Its D8 customers clear Varnish using ``acquia_purge``**<!-- .element: class="fragment" -->
+
+          **Often also run other CDNs, like Cloudflare in front..**<!-- .element: class="fragment" -->
+
+          ---
+          ## Ok, let's show off
+          ## a fancy diagram...
+
+          <a href="img/purge_diagram.png" target="_blank">open diagram...</a><!-- .element: class="fragment" -->
+
+          ---
+          ## Let's take Cloudflare
+          ## as example project...
+
+          ---
+          ## The CloudFlare module
+          * Originally started as independent project. <!-- .element: class="fragment" -->
+
+          * Adam figured he could drop code and port to Purge. <!-- .element: class="fragment" -->
+
+          * Focus on interacting to Cloudflare. Not purging!<!-- .element: class="fragment" -->
+
+          * 238 lines of code to clear tags on Cloudflare. <!-- .element: class="fragment" -->
+
+          * 400 lines for a diagnostics to safeguard SDK limits<!-- .element: class="fragment" -->
+
+          ---
+          ## Its purger plugin
+
+          <a href="https://cgit.drupalcode.org/cloudflare/tree/modules/cloudflarepurger/src/Plugin/Purge/Purger/CloudFlarePurger.php" target="_blank">src/Plugin/Purge/Purger/CloudFlarePurger.php</a>
+
+```
+/**
+ * CloudFlare purger.
+ *
+ * @PurgePurger(
+ *   id = "cloudflare",
+ *   label = @Translation("CloudFlare"),
+ *   description = @Translation("Purger for CloudFlare."),
+ *   types = {"tag", "url", "everything"},
+ *   multi_instance = FALSE,
+ * )
+ */
+class CloudFlarePurger extends PurgerBase implements PurgerInterface {
+...
+  public function invalidate(array $invalidations) {
+    $chunks = array_chunk($invalidations, CloudFlareAPI::MAX_TAG_PURGES_PER_REQUEST);
+
+    $has_invalidations = count($invalidations) > 0;
+    if (!$has_invalidations) {
+      return;
+    }
+
+    foreach ($chunks as $chunk) {
+      $this->purgeChunk($chunk);
+    }
+  }
+...
+```
+
+
+          ---
+          ### Its diagnostic plugin protects the user...
+          ![](img/cloudflare-diagnostics.png)
+
+          ```
+          $ drush pinv tag foo
+          diagnostics: ERROR: CloudFlare - Credentials: Invalid Api credentials.
+          Invalid Api credentials.
+          ```
+
+          ---
+          ## The Purge UI
+
+          <a href="http://drupal8.loc/admin/config/development/performance/purge" target="_blank">/admin/config/development/performance/purge</a><!-- .element: class="fragment" -->
+
+
+
+        </script></section>
+        <section data-markdown data-separator="^\n---\n$" data-separator-vertical="^\n---$"><script type="text/template">
+          # That was it!
+
+          ---
+          # Questions?
+
+          ---
+          # Questions?
+          * Slides at [goo.gl/WlLy80](https://github.com/nielsvm/talk-20160722-cache-clear-all-the-things)
+          * [niels.vanmourik@acquia.com](niels.vanmourik@acquia.com)
+          * [drupal.org/project/purge](https://www.drupal.org/project/purge)
+          * [drupal.org/project/cloudflare](https://www.drupal.org/project/cloudflare)
+        </script></section>
+
+        <div class='footer'>
+          <ul id="footerlist">
+            <li class="transparency"><span id="time"></span></li>
+            <li class="transparency"><i>Caching & Purging in Drupal 8</i></li>
+            <li class="transparency"><a href="https://twitter.com/_nielsvm" target="_blank">Niels van Mourik</a></li>
+            <li><a href="http://www.acquia.com/" target="_blank"><img src="img/acquia-logo-think-ahead-white-tiny.svg" /></a></li>
+          </ul>
+        </div>
+      </div>
+      <script src="src/reveal/lib/js/head.min.js"></script>
+      <script src="src/reveal/js/reveal.js" /></script>
+      <script src="src/configuration.js" /></script>
+      <script src="src/stopwatch.js" /></script>
+        <script><!-- Printing and PDF exports -->
+          show();
+          start();
+      </script>
+    </div>
+  </body>
+</html>

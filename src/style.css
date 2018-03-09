@@ -1,0 +1,51 @@
+body {
+  background-color: #000000;
+}
+.reveal {
+  color: #FFFFFF;
+}
+.reveal a {
+  color: #FFFFFF;
+  text-decoration: underline;
+}
+
+/* Getting rid of image borders */
+.reveal section img {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    max-width: 50%;
+}
+
+/* Footer styling */
+.reveal .footer {
+  position: absolute;
+  bottom: 0.5em;
+  right: 0em;
+  font-size: 0.5em;
+}
+#footerlist #time {
+  opacity: 0.5;
+}
+#footerlist .transparency {
+  opacity: 0.5;
+}
+#footerlist, #footerlist a {
+  color: white;
+  text-decoration: none;
+}
+#footerlist img {
+  max-width: 13%;
+  vertical-align: -25%;
+}
+ul#footerlist {
+  list-style-type: none;
+  text-align: right;
+  padding: 0;
+  margin: 0;
+  float: right;
+}
+ul#footerlist li {
+  display: inline;
+  margin-right: 0.6em;
+}
